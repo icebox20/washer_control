@@ -41,8 +41,11 @@
 #define PRESSURE_PORT 			GPIOB
 #define PRESSURE_MISO 			GPIO_PIN_1
 #define PRESSURE_SCK 			GPIO_PIN_0
-
-
+#define WATER_LEVEL_1			160000
+#define WATER_LEVEL_2			170000
+#define WATER_LEVEL_3			180000
+#define WATER_LEVEL_4			190000
+#define WATER_LEVEL_5			200000
 
 /* USER CODE END PD */
 
@@ -62,6 +65,8 @@ uint8_t char_b_font[16] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
 uint8_t InverterRxData[32];
 uint8_t InverterTxData[8];
 uint16_t InverterData[10];
+GPIO_TypeDef * keypad_ports[8] = {KEYPAD_0_GPIO_Port, KEYPAD_1_GPIO_Port, KEYPAD_2_GPIO_Port, KEYPAD_3_GPIO_Port, KEYPAD_4_GPIO_Port, KEYPAD_5_GPIO_Port, KEYPAD_6_GPIO_Port, KEYPAD_7_GPIO_Port};
+const uint16_t keypad_pins[8] = {KEYPAD_0_Pin, KEYPAD_1_Pin, KEYPAD_2_Pin, KEYPAD_3_Pin, KEYPAD_4_Pin, KEYPAD_5_Pin, KEYPAD_6_Pin, KEYPAD_7_Pin};
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -168,7 +173,23 @@ int32_t read_hx710b(){
 }
 
 int get_water_level(){
+	int32_t pressure = read_hx710b();
+
+	if(pressure < WATER_LEVEL_1 || pressure == 0x7FFFFF || pressure == 0x800000)
+		return 0;
+	else if(pressure >= WATER_LEVEL_5)
+		return 5;
+	else if(pressure >= WATER_LEVEL_4)
+		return 4;
+	else if(pressure >= WATER_LEVEL_3)
+		return 3;
+	else if(pressure >= WATER_LEVEL_2)
+		return 2;
+	else if(pressure >= WATER_LEVEL_1)
+		return 1;
+
 	return 0;
+
 }
 
 void sendData (uint8_t *data)
@@ -184,6 +205,24 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size){
 //	InverterData[2] = InverterRxData[7]<<8 | InverterRxData[8];
 //	InverterData[3] = InverterRxData[9]<<8 | InverterRxData[10];
 //	InverterData[4] = InverterRxData[11]<<8 | InverterRxData[12];
+}
+
+int read_keypad(){
+	HAL_GPIO_WritePin(KEYPAD_0_GPIO_Port, KEYPAD_0_Pin, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(KEYPAD_1_GPIO_Port, KEYPAD_1_Pin, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(KEYPAD_2_GPIO_Port, KEYPAD_2_Pin, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(KEYPAD_3_GPIO_Port, KEYPAD_3_Pin, GPIO_PIN_RESET);
+
+	for (int row = 0; row < 4; ++row) {
+	  HAL_GPIO_WritePin(keypad_ports[row], keypad_pins[row], GPIO_PIN_SET);
+	  for (int col = 0; col < 4; ++col) {
+		  if(HAL_GPIO_ReadPin(keypad_ports[col+4], keypad_pins[col+4])){
+			  return row * 4 + col;
+		  }
+	  }
+	  HAL_GPIO_WritePin(keypad_ports[row], keypad_pins[row], GPIO_PIN_RESET);
+	}
+	return 16;
 }
 /* USER CODE END 0 */
 
@@ -246,15 +285,20 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  hex_display_set("        ");
+	  //hex_display_set("        ");
 	  int32_t pressure = read_hx710b();
 	  char snum[8];
 	  itoa(pressure/10, snum, 10);
 
-	  utoa((uint8_t)InverterData[0], snum, 10 );
+	  //utoa((uint8_t)InverterData[0], snum, 10 );
 
 	  hex_display_set(snum);
 	  HAL_Delay(1000);
+
+	  hex_display_set_single(1, (char)read_keypad()+48);
+
+	  HAL_Delay(500);
+
 //	  hex_display_set("01234567");
 //	  HAL_Delay(1000);
     /* USER CODE END WHILE */
@@ -396,10 +440,11 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(LED_BUILTIN_GPIO_Port, LED_BUILTIN_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, HEX_CS_Pin|INVERTER_EN_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, HEX_CS_Pin|INVERTER_EN_Pin|KEYPAD_0_Pin|KEYPAD_1_Pin
+                          |KEYPAD_2_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(PRESSURE_SCK_GPIO_Port, PRESSURE_SCK_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, PRESSURE_SCK_Pin|KEYPAD_3_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : LED_BUILTIN_Pin */
   GPIO_InitStruct.Pin = LED_BUILTIN_Pin;
@@ -408,25 +453,39 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(LED_BUILTIN_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : HEX_CS_Pin INVERTER_EN_Pin */
-  GPIO_InitStruct.Pin = HEX_CS_Pin|INVERTER_EN_Pin;
+  /*Configure GPIO pins : HEX_CS_Pin INVERTER_EN_Pin KEYPAD_0_Pin KEYPAD_1_Pin
+                           KEYPAD_2_Pin */
+  GPIO_InitStruct.Pin = HEX_CS_Pin|INVERTER_EN_Pin|KEYPAD_0_Pin|KEYPAD_1_Pin
+                          |KEYPAD_2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : PRESSURE_SCK_Pin */
-  GPIO_InitStruct.Pin = PRESSURE_SCK_Pin;
+  /*Configure GPIO pins : PRESSURE_SCK_Pin KEYPAD_3_Pin */
+  GPIO_InitStruct.Pin = PRESSURE_SCK_Pin|KEYPAD_3_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(PRESSURE_SCK_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /*Configure GPIO pin : PRESSURE_MISO_Pin */
   GPIO_InitStruct.Pin = PRESSURE_MISO_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(PRESSURE_MISO_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : BALANCE_Pin ESTOP_Pin LOCK_Pin HINGE_Pin */
+  GPIO_InitStruct.Pin = BALANCE_Pin|ESTOP_Pin|LOCK_Pin|HINGE_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : KEYPAD_4_Pin KEYPAD_5_Pin KEYPAD_6_Pin KEYPAD_7_Pin */
+  GPIO_InitStruct.Pin = KEYPAD_4_Pin|KEYPAD_5_Pin|KEYPAD_6_Pin|KEYPAD_7_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
 /* USER CODE END MX_GPIO_Init_2 */
